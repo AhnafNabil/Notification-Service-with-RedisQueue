@@ -1,7 +1,7 @@
 import json
 import logging
 import redis.asyncio as redis
-from typing import Any, Dict, List, Optional, Callable, Awaitable
+from typing import Any, Dict, Callable, Awaitable
 
 from app.core.config import settings
 
@@ -58,39 +58,6 @@ class RedisClient:
                     logger.error(f"Failed to parse message data: {message['data']}")
                 except Exception as e:
                     logger.error(f"Error processing message: {str(e)}")
-    
-    async def get_stream_messages(self, stream_name: str, count: int = 10, last_id: str = '0-0') -> List[Dict]:
-        """Read messages from a Redis stream."""
-        if not self.client:
-            await self.connect()
-        
-        try:
-            # Read messages from the stream
-            messages = await self.client.xread({stream_name: last_id}, count=count, block=0)
-            
-            # Process and return messages
-            result = []
-            for stream, stream_messages in messages:
-                for message_id, fields in stream_messages:
-                    result.append({
-                        'id': message_id,
-                        'data': fields
-                    })
-            
-            return result
-        except Exception as e:
-            logger.error(f"Error reading from stream {stream_name}: {str(e)}")
-            return []
-    
-    async def acknowledge_message(self, stream_name: str, group_name: str, message_id: str):
-        """Acknowledge a message in a consumer group."""
-        if not self.client:
-            await self.connect()
-        
-        try:
-            await self.client.xack(stream_name, group_name, message_id)
-        except Exception as e:
-            logger.error(f"Error acknowledging message {message_id}: {str(e)}")
     
     async def stop(self):
         """Stop the subscription loop."""

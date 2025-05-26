@@ -18,6 +18,9 @@ class EmailProvider:
         self.password = settings.SMTP_PASSWORD
         self.from_email = settings.EMAIL_FROM
         self.from_name = settings.EMAIL_FROM_NAME
+        
+        # Log the configuration at initialization
+        logger.info(f"Email provider initialized with: Host={self.host}, Port={self.port}, User={self.username}")
     
     async def send_email(
         self, 
@@ -30,21 +33,13 @@ class EmailProvider:
     ) -> bool:
         """
         Send an email notification.
-        
-        Args:
-            to_email: Recipient email address
-            subject: Email subject
-            html_content: HTML content of the email
-            text_content: Plain text content (optional)
-            cc: Carbon copy recipients (optional)
-            bcc: Blind carbon copy recipients (optional)
-            
-        Returns:
-            bool: True if email was sent successfully, False otherwise
         """
+        # Log the email attempt with configuration details
+        logger.info(f"Attempting to send email to {to_email} using {self.host}:{self.port}")
+        
         # Skip if email configuration is missing
         if not self.username or not self.password or not self.from_email:
-            logger.warning("Email configuration is incomplete. Cannot send email.")
+            logger.warning(f"Email configuration incomplete. Host: {self.host}, Port: {self.port}, User: {self.username}, From: {self.from_email}")
             return False
         
         try:
@@ -76,19 +71,44 @@ class EmailProvider:
             if bcc:
                 recipients.extend(bcc)
             
-            # Send email
-            await aiosmtplib.send(
-                message,
-                hostname=self.host,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                use_tls=True
-            )
+            logger.info(f"Connecting to SMTP server {self.host}:{self.port}")
             
-            logger.info(f"Email sent to {to_email}")
-            return True
-        
+            # Send email with detailed step logging
+            try:
+                # Create SMTP client
+                smtp = aiosmtplib.SMTP(
+                    hostname=self.host,
+                    port=self.port,
+                )
+                logger.info("SMTP client created")
+                
+                # Connect
+                await smtp.connect()
+                logger.info("Connected to SMTP server")
+                
+                # Start TLS
+                await smtp.starttls()
+                logger.info("TLS started")
+                
+                # Login
+                await smtp.login(self.username, self.password)
+                logger.info("Logged in successfully")
+                
+                # Send
+                await smtp.send_message(message)
+                logger.info("Message sent")
+                
+                # Quit
+                await smtp.quit()
+                logger.info("SMTP connection closed")
+                
+                logger.info(f"Email successfully sent to {to_email}")
+                return True
+                
+            except Exception as e:
+                logger.error(f"SMTP operation error: {str(e)}")
+                raise
+            
         except Exception as e:
             logger.error(f"Failed to send email to {to_email}: {str(e)}")
             return False
