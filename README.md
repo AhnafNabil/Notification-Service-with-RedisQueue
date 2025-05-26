@@ -1,429 +1,282 @@
-# E-commerce Microservices: A Testing Scenario
+# E-commerce Low Stock Notification System
 
-Welcome to **E-commerce Site**, a modern e-commerce platform built with microservices and RabbitMQ. This guide tells the story of how our system handles real-world scenarios - from busy shopping days to unexpected service outages.
+## System Workflow Overview
 
-In this documentation, we will describe the entire testing procedure through a story or scenario that could occur in a real-world setting.
+The workflow remains the same as described earlier:
+1. Inventory thresholds are configured
+2. Orders or inventory updates reduce stock levels
+3. Low stock conditions trigger notifications via Redis
+4. Admin receives email notifications
 
-## The Setup
+## Step-by-Step Testing Procedure (Revised)
 
-Run the application using docker compose:
+### 1. Start the System
 
 ```bash
-docker-compose up --build -d
+docker-compose up -d
 ```
 
-This will start all services including:
+Wait for all services to initialize (about 30 seconds).
 
-- Product Service (MongoDB)
-- Order Service (MongoDB)
-- Inventory Service (PostgreSQL)
-- User Service (PostgreSQL)
-- RabbitMQ Message Broker
-- Nginx API Gateway
-
-Install `jq` to make JSON output more readable in the terminal:
+### 2. Verify Services Are Running
 
 ```bash
-apt-get update && apt-get install -y jq
+# Check service status
+docker-compose ps
+
+# Verify API Gateway is responsive
+curl http://localhost/health
 ```
 
-**RabbitMQ Dashboard**: Open http://localhost:15672 (guest/guest) to watch our message queues in action.
+All services should be in the "Up" state with their respective health checks passing.
 
-## Chapter 1: A New Customer Arrives
+### 3. Create a Dedicated Test Product
 
-*Sarah visits the site for the first time. She needs to create an account and add her shipping address.*
-
-### Creating Sarah's Account
 ```bash
+# Create a unique test product with an initial quantity
+curl -X POST "http://localhost/api/v1/products/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Notification Test Monitor",
+    "description": "Product specifically for testing notification system",
+    "category": "Electronics",
+    "price": 249.99,
+    "quantity": 10
+  }' | jq .
+```
+
+Save the product ID from the response:
+
+```bash
+PRODUCT_ID=$(curl -s -X GET "http://localhost/api/v1/products/" | \
+  jq -r '.[] | select(.name=="Notification Test Monitor") | ._id')
+
+echo "Product ID: $PRODUCT_ID"
+```
+
+### 4. Verify Inventory Setup
+
+Check that the inventory record was automatically created for the product:
+
+```bash
+# Check initial inventory
+curl -s -X GET "http://localhost/api/v1/inventory/$PRODUCT_ID" | jq .
+```
+
+You should see something like:
+```json
+{
+  "id": 1,
+  "product_id": "your-product-id",
+  "available_quantity": 10,
+  "reserved_quantity": 0,
+  "reorder_threshold": 5,
+  "created_at": "2023-05-27T12:00:00",
+  "updated_at": "2023-05-27T12:00:00"
+}
+```
+
+### 5. Test Direct Email Functionality
+
+Test the email notification system directly:
+
+```bash
+# Send a test notification
+curl -X POST "http://localhost/api/v1/notifications/test"
+```
+
+Check your Mailtrap inbox for the test email. You should see a "Test Notification" email.
+
+### 6. Trigger a Low Stock Notification via Inventory Update
+
+Update the inventory to simulate a low stock condition:
+
+```bash
+# Update inventory to below threshold
+curl -X PUT "http://localhost/api/v1/inventory/$PRODUCT_ID" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "available_quantity": 3,
+    "reorder_threshold": 5
+  }' | jq .
+```
+
+Check your Mailtrap inbox again. You should see a "Low Stock Alert" email for "Notification Test Monitor" with details about the product.
+
+### 7. Verify Notification Database Record
+
+Check that the notification was recorded in the database:
+
+```bash
+# List recent notifications
+curl -s "http://localhost/api/v1/notifications/?limit=5" | jq .
+```
+
+You should see a low stock notification with status "sent" for the "Notification Test Monitor" product.
+
+### 8. Test Order-Triggered Notification
+
+Test the complete flow from order placement to notification by creating another unique product:
+
+```bash
+# Create a second unique test product
+curl -X POST "http://localhost/api/v1/products/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Order Flow Test Keyboard",
+    "description": "Product for testing order-triggered notifications",
+    "category": "Electronics",
+    "price": 89.99,
+    "quantity": 10
+  }' | jq .
+
+# Get the new product ID
+ORDER_TEST_PRODUCT_ID=$(curl -s -X GET "http://localhost/api/v1/products/" | \
+  jq -r '.[] | select(.name=="Order Flow Test Keyboard") | ._id')
+
+echo "Order Test Product ID: $ORDER_TEST_PRODUCT_ID"
+
+# Check its inventory and threshold
+curl -s -X GET "http://localhost/api/v1/inventory/$ORDER_TEST_PRODUCT_ID" | jq .
+
+# Create a user (if one doesn't exist)
 curl -X POST "http://localhost/api/v1/auth/register" \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "sarah@example.com",
+    "email": "notification-test@example.com",
     "password": "Password123",
-    "first_name": "Sarah",
-    "last_name": "Johnson",
-    "phone": "555-123-4567"
+    "first_name": "Notification",
+    "last_name": "Tester",
+    "phone": "555-123-9876"
   }' | jq .
-```
 
-### Sarah Logs In
-
-Saving the authentication token:
-```bash
-curl -s -X POST "http://localhost/api/v1/auth/login" \
+# Login to get token
+TOKEN=$(curl -s -X POST "http://localhost/api/v1/auth/login" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=sarah@example.com&password=Password123" | jq .
-```
+  -d "username=notification-test@example.com&password=Password123" | jq -r .access_token)
 
-Save the access_token for subsequent requests:
-```bash
-TOKEN="eyJhbGciOiJS..."  # Replace with the actual token from the response
-```
-
-Saving the user ID:
-```bash
+# Get user ID
 USER_ID=$(curl -s -X GET "http://localhost/api/v1/users/me" \
   -H "Authorization: Bearer $TOKEN" | jq -r .id)
-```
 
-### Adding Her Shipping Address
-```bash
-curl -X POST "http://localhost/api/v1/users/me/addresses" \
+# Place an order that will reduce inventory below threshold
+curl -s -X POST "http://localhost/api/v1/orders/" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "line1": "456 Tech Street",
-    "line2": "Apt 12B",
-    "city": "San Francisco",
-    "state": "CA",
-    "postal_code": "94105",
-    "country": "USA",
-    "is_default": true
+    "user_id": "'$USER_ID'",
+    "items": [
+      {
+        "product_id": "'$ORDER_TEST_PRODUCT_ID'",
+        "quantity": 6,
+        "price": 89.99
+      }
+    ],
+    "shipping_address": {
+      "line1": "456 Notification St",
+      "city": "Alert City",
+      "state": "NT",
+      "postal_code": "54321",
+      "country": "Testland"
+    }
   }' | jq .
 ```
 
-## Chapter 2: Stocks Products
+Wait a few seconds for the order to be processed, then check your Mailtrap inbox for another low stock notification specifically for the "Order Flow Test Keyboard" product.
 
-### Adding the iPhone 15
+### 9. Check Notification Service Logs
+
+Examine the notification service logs to see the entire process:
+
 ```bash
-curl -s -X POST "http://localhost/api/v1/products/" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "iPhone 15 Pro",
-    "description": "Latest Apple smartphone with advanced camera system",
-    "category": "Electronics",
-    "price": 999.99,
-    "quantity": 25
-  }' | jq .
+# View notification service logs
+docker-compose logs notification-service | tail -n 50
 ```
 
+Look for messages showing the processing of notifications for our test products.
+
+### 10. Test Direct Redis Message
+
+Test sending a notification message directly through Redis:
+
 ```bash
-IPHONE_ID="iphone id" # Replace with the actual id from the response
+# Publish a test Redis message directly
+docker-compose exec redis redis-cli PUBLISH inventory:low-stock '{"type":"low_stock","product_id":"direct-redis-test","product_name":"Direct Redis Test Product","current_quantity":2,"threshold":5}'
 ```
 
-### Adding AirPods
+After publishing the direct Redis message, check your Mailtrap inbox for a notification about "Direct Redis Test Product".
+
+### 11. Test System Resilience
+
+Test how the system handles service outages:
+
 ```bash
-curl -s -X POST "http://localhost/api/v1/products/" \
-  -H "Authorization: Bearer $TOKEN" \
+# Create another unique product for resilience testing
+curl -X POST "http://localhost/api/v1/products/" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "AirPods Pro 2",
-    "description": "Wireless earbuds with active noise cancellation",
+    "name": "Resilience Test Headphones",
+    "description": "Product for testing system resilience",
     "category": "Audio",
-    "price": 249.99,
-    "quantity": 50
+    "price": 129.99,
+    "quantity": 10
   }' | jq .
-```
 
-```bash
-AIRPODS_ID="airpods id" # Replace with the actual id from the response
-```
+# Get the resilience test product ID
+RESILIENCE_PRODUCT_ID=$(curl -s -X GET "http://localhost/api/v1/products/" | \
+  jq -r '.[] | select(.name=="Resilience Test Headphones") | ._id')
 
-### Verifying Automatic Inventory Creation
+echo "Resilience Test Product ID: $RESILIENCE_PRODUCT_ID"
 
-Check that inventory was automatically created for iPhone:
-```bash
-curl -s -X GET "http://localhost/api/v1/inventory/$IPHONE_ID" \
-  -H "Authorization: Bearer $TOKEN" | jq .
-```
+# Stop the notification service
+docker-compose stop notification-service
 
-Check inventory for AirPods:
-```bash
-curl -s -X GET "http://localhost/api/v1/inventory/$AIRPODS_ID" \
-  -H "Authorization: Bearer $TOKEN" | jq .
-```
-
-**🎯 Scenario Point**: Notice how inventory records are created automatically with smart thresholds (10% of stock, minimum 5 units).
-
-## Chapter 3: Sarah's Shopping Experience
-
-*Sarah browses products and decides to make her first purchase.*
-
-### Browsing Available Products
-
-Sarah sees all available products:
-```bash
-curl -s -X GET "http://localhost/api/v1/products/" \
-  -H "Authorization: Bearer $TOKEN" | jq .
-```
-
-She filters by Electronics category:
-```bash
-curl -s -X GET "http://localhost/api/v1/products/?category=Electronics" \
-  -H "Authorization: Bearer $TOKEN" | jq .
-```
-
-### Sarah Places Her Order
-
-Sarah orders an iPhone and AirPods:
-```bash
-curl -s -X POST "http://localhost/api/v1/orders/" \
-  -H "Authorization: Bearer $TOKEN" \
+# Trigger a low stock condition
+curl -X PUT "http://localhost/api/v1/inventory/$RESILIENCE_PRODUCT_ID" \
   -H "Content-Type: application/json" \
   -d '{
-    "user_id": "'$USER_ID'",
-    "items": [
-      {
-        "product_id": "'$IPHONE_ID'",
-        "quantity": 1,
-        "price": 999.99
-      },
-      {
-        "product_id": "'$AIRPODS_ID'",
-        "quantity": 2,
-        "price": 249.99
-      }
-    ],
-    "shipping_address": {
-      "line1": "456 Tech Street",
-      "line2": "Apt 12B",
-      "city": "San Francisco",
-      "state": "CA",
-      "postal_code": "94105",
-      "country": "USA"
-    }
+    "available_quantity": 1,
+    "reorder_threshold": 5
   }' | jq .
-``` 
 
-Save the order id for subsequent requests:
-```bash
-ORDER_ID="order id" # Replace with the actual id from the response
+# Start the notification service again
+docker-compose start notification-service
+
+# Check logs to see if message was processed after restart
+docker-compose logs --tail=50 notification-service
 ```
 
-### Behind the Scenes: RabbitMQ Magic
+## Verifying Results
 
-Check RabbitMQ queues to see the asynchronous processing:
-```bash
-curl -s -u guest:guest http://localhost:15672/api/queues | \
-  jq '.[] | select(.name | contains("order") or contains("inventory")) | {name: .name, total_published: (.message_stats.publish // 0)}'
-```
+After running the tests, you should have:
 
-### Verifying Inventory Reservation
+1. **Three Product-Specific Notifications**:
+   - "Notification Test Monitor" (triggered by direct inventory update)
+   - "Order Flow Test Keyboard" (triggered by order placement)
+   - "Resilience Test Headphones" (testing service resilience)
 
-Check that inventory was automatically reserved:
-```bash
-curl -s -X GET "http://localhost/api/v1/inventory/$IPHONE_ID" \
-  -H "Authorization: Bearer $TOKEN" | jq .
-```
+2. **Two Additional Notifications**:
+   - Test notification (from the /test endpoint)
+   - "Direct Redis Test Product" (from manual Redis message)
 
-```bash
-curl -s -X GET "http://localhost/api/v1/inventory/$AIRPODS_ID" \
-  -H "Authorization: Bearer $TOKEN" | jq .
-```
+In your Mailtrap inbox, each notification should have:
+- A clear subject line identifying the product
+- The current quantity and threshold information
+- Product details formatted in HTML
 
-**🎯 Story Point**: The order is created instantly (status: "pending"), while inventory is reserved asynchronously via RabbitMQ. Sarah gets immediate confirmation!
+## Checking Database Records
 
-## Chapter 4: Processing Sarah's Order
-
-### Updating Order Status
+To review all notifications in the database:
 
 ```bash
-curl -X PUT "http://localhost/api/v1/orders/$ORDER_ID/status" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"status": "paid"}' | jq '{id: ._id, status: .status, updated_at: .updated_at}'
+# View all stored notifications
+curl -s "http://localhost/api/v1/notifications/?limit=10" | jq .
 ```
 
-## Chapter 5: The Cancellation Crisis
+Each notification should have a status of "sent" if email delivery was successful.
 
-*Sarah also wants to order for her friend, but then changes her mind. This tests our cancellation system.*
+## Conclusion
 
-### Places an Order for her friend
+By using distinct product names for each test case, you can clearly identify which notifications correspond to which test scenarios. This makes it easier to verify that each part of the system is working correctly and to troubleshoot any issues that might arise.
 
-Orders an iPhone for her friend:
-```bash
-curl -s -X POST "http://localhost/api/v1/orders/" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "'$USER_ID'",
-    "items": [
-      {
-        "product_id": "'$IPHONE_ID'",
-        "quantity": 1,
-        "price": 999.99
-      }
-    ],
-    "shipping_address": {
-      "line1": "456 Tech Street",
-      "city": "San Francisco",
-      "state": "CA", 
-      "postal_code": "94105",
-      "country": "USA"
-    }
-  }' | jq .
-```
-
-Save the order id for subsequent requests:
-```bash
-FRIEND_ORDER_ID="order id" # Replace with the actual id from the response
-```
-
-### Inventory Before Cancellation
-
-```bash
-curl -s -X GET "http://localhost/api/v1/inventory/$IPHONE_ID" \
-  -H "Authorization: Bearer $TOKEN" | jq .
-```
-
-### Cancels the Order
-
-```bash
-curl -X DELETE "http://localhost/api/v1/orders/$FRIEND_ORDER_ID" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-Check that RabbitMQ processed the cancellation:
-```bash
-curl -s -u guest:guest http://localhost:15672/api/queues | \
-  jq '.[] | select(.name | contains("order") or contains("inventory")) | {name: .name, total_published: (.message_stats.publish // 0)}'
-```
-
-Check that inventory was released:
-```bash
-curl -s -X GET "http://localhost/api/v1/inventory/$IPHONE_ID" \
-  -H "Authorization: Bearer $TOKEN" | jq .
-```
-
-**🎯 Story Point**: Inventory is automatically released via RabbitMQ when orders are cancelled, ensuring accurate stock levels.
-
-## Chapter 6: Black Friday Disaster (Service Outage Test)
-
-*It's Black Friday! Suddenly, the inventory service crashes due to high load. But our system keeps running...*
-
-### The Crash Happens
-
-Inventory service crashes during peak traffic:
-```bash
-docker-compose stop inventory-service
-```
-
-### Customers Keep Shopping
-
-Customer places order while service is down:
-```bash
-curl -s -X POST "http://localhost/api/v1/orders/" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "'$USER_ID'",
-    "items": [
-      {
-        "product_id": "'$AIRPODS_ID'",
-        "quantity": 1,
-        "price": 249.99
-      }
-    ],
-    "shipping_address": {
-      "line1": "456 Tech Street",
-      "city": "San Francisco",
-      "state": "CA",
-      "postal_code": "94105", 
-      "country": "USA"
-    }
-  }' | jq .
-```
-
-Save the order id for subsequent requests:
-```bash
-BLACKFRIDAY_ORDER_ID="order id" # Replace with the actual id from the response
-```
-
-### Messages Queue Up
-
-Check that messages are waiting in queue:
-```bash
-curl -s -u guest:guest http://localhost:15672/api/queues/%2F/order_created | \
-  jq '{messages_waiting: .messages, consumers: .consumers}'
-```
-
-![alt text](./images/image.png)
-
-### Customer Tries to Cancel During Outage
-
-Customer decides to cancel during the outage:
-```bash
-curl -X DELETE "http://localhost/api/v1/orders/$BLACKFRIDAY_ORDER_ID" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-Check that cancellation message is also queued:
-```bash
-curl -s -u guest:guest http://localhost:15672/api/queues/%2F/inventory_release | \
-  jq '{messages_waiting: .messages}'
-```
-
-![alt text](./images/image-1.png)
-
-### Service Recovery
-
-DevOps team fixes the service:
-```bash
-docker-compose start inventory-service
-```
-
-Check that all messages were processed:
-```bash
-curl -s -u guest:guest http://localhost:15672/api/queues | \
-  jq '.[] | select(.name | contains("order") or contains("inventory")) | {name: .name, messages_waiting: .messages}'
-```
-
-![alt text](./images/image-2.png)
-
-Verify order was processed and then cancelled:
-```bash
-curl -s -X GET "http://localhost/api/v1/orders/$BLACKFRIDAY_ORDER_ID" \
-  -H "Authorization: Bearer $TOKEN" | jq .
-```
-
-**🎯 Story Point**: Even during service outages, orders are accepted and queued. When services recover, everything processes automatically!
-
-## Chapter 7: The Final Inventory Report
-
-*At the end of the day, let's see how our system performed.*
-
-### Order Summary
-
-View all orders from today:
-```bash
-curl -s -X GET "http://localhost/api/v1/orders/" -H "Authorization: Bearer $TOKEN" | \
-  jq '.[] | {id: ._id, status: .status, total_price: .total_price}'
-```
-
-### Inventory Status
-
-Check final inventory levels:
-```bash
-curl -s -X GET "http://localhost/api/v1/inventory/" -H "Authorization: Bearer $TOKEN" | \
-  jq '.[] | {product_id: .product_id, available: .available_quantity, reserved: .reserved_quantity, threshold: .reorder_threshold}'
-```
-
-### RabbitMQ Performance Report
-
-See total message throughput:
-```bash
-curl -s -u guest:guest http://localhost:15672/api/queues | \
-  jq '.[] | select(.name | contains("order") or contains("inventory")) | {
-    queue: .name,
-    total_processed: (.message_stats.deliver // 0),
-    currently_waiting: .messages
-  }'
-```
-
-## The Story's Lessons
-
-### ✅ **What We Proved**
-
-1. **Seamless User Experience**: Orders are accepted instantly while processing happens asynchronously
-2. **Automatic Inventory Management**: Stock levels update automatically via RabbitMQ
-3. **Service Resilience**: System continues working even during service outages
-4. **Data Consistency**: All operations maintain inventory accuracy
-5. **Zero Message Loss**: RabbitMQ ensures reliable message delivery
-
-### 📊 **Business Impact**
-
-- **Customer Satisfaction**: No failed orders due to temporary service issues
-- **Operational Efficiency**: Automatic inventory tracking and threshold alerts
-- **Scalability**: System handles traffic spikes gracefully
-- **Reliability**: 99.9% uptime even with individual service failures
+The low stock notification system provides a streamlined way to monitor inventory levels and alert administrators when products need to be replenished, helping to prevent stockouts and ensure a smooth shopping experience for customers.

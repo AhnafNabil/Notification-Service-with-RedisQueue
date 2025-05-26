@@ -1,3 +1,4 @@
+# notification-service/app/services/email_provider.py
 import logging
 import aiosmtplib
 from email.mime.multipart import MIMEMultipart
@@ -73,30 +74,86 @@ class EmailProvider:
             
             logger.info(f"Connecting to SMTP server {self.host}:{self.port}")
             
-            # Send email with detailed step logging
+            # Send email with Mailtrap-specific configuration
             try:
-                # Create SMTP client
-                smtp = aiosmtplib.SMTP(
-                    hostname=self.host,
-                    port=self.port,
-                )
-                logger.info("SMTP client created")
+                # For Mailtrap sandbox, we need different settings based on port
+                if self.port == 2525:
+                    # Port 2525 - Plain authentication, no TLS
+                    smtp = aiosmtplib.SMTP(
+                        hostname=self.host,
+                        port=self.port,
+                        use_tls=False,
+                        start_tls=False
+                    )
+                    logger.info("Using plain authentication for port 2525")
+                    
+                    # Connect
+                    await smtp.connect()
+                    logger.info("Connected to SMTP server")
+                    
+                    # Login directly without TLS
+                    await smtp.login(self.username, self.password)
+                    logger.info("Logged in successfully")
+                    
+                elif self.port == 587:
+                    # Port 587 - STARTTLS
+                    smtp = aiosmtplib.SMTP(
+                        hostname=self.host,
+                        port=self.port,
+                        use_tls=False,
+                        start_tls=True
+                    )
+                    logger.info("Using STARTTLS for port 587")
+                    
+                    # Connect
+                    await smtp.connect()
+                    logger.info("Connected to SMTP server")
+                    
+                    # Start TLS
+                    await smtp.starttls()
+                    logger.info("TLS started")
+                    
+                    # Login
+                    await smtp.login(self.username, self.password)
+                    logger.info("Logged in successfully")
+                    
+                elif self.port == 465:
+                    # Port 465 - SSL/TLS
+                    smtp = aiosmtplib.SMTP(
+                        hostname=self.host,
+                        port=self.port,
+                        use_tls=True,
+                        start_tls=False
+                    )
+                    logger.info("Using SSL/TLS for port 465")
+                    
+                    # Connect
+                    await smtp.connect()
+                    logger.info("Connected to SMTP server")
+                    
+                    # Login
+                    await smtp.login(self.username, self.password)
+                    logger.info("Logged in successfully")
+                    
+                else:
+                    # Default fallback
+                    smtp = aiosmtplib.SMTP(
+                        hostname=self.host,
+                        port=self.port,
+                    )
+                    logger.info("Using default configuration")
+                    
+                    # Connect
+                    await smtp.connect()
+                    logger.info("Connected to SMTP server")
+                    
+                    # Login
+                    await smtp.login(self.username, self.password)
+                    logger.info("Logged in successfully")
                 
-                # Connect
-                await smtp.connect()
-                logger.info("Connected to SMTP server")
-                
-                # Start TLS
-                await smtp.starttls()
-                logger.info("TLS started")
-                
-                # Login
-                await smtp.login(self.username, self.password)
-                logger.info("Logged in successfully")
-                
-                # Send
+                # Send the message
                 await smtp.send_message(message)
-                logger.info("Message sent")
+                logger.info("Message sent successfully")
                 
                 # Quit
                 await smtp.quit()

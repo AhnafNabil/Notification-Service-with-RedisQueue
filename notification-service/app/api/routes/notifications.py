@@ -1,3 +1,4 @@
+# notification-service/app/api/routes/notifications.py
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -85,9 +86,11 @@ async def send_test_notification(
             detail="Admin email not configured"
         )
     
-    # Create a test notification
+    # Create a test notification with the required fields
     test_notification = Notification(
         type="test",
+        channel="email",  # Add this required field
+        recipient_id="admin",  # Add this field
         subject="Test Notification",
         content="This is a test notification to verify email delivery.",
         status="pending",

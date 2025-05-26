@@ -1,3 +1,4 @@
+# notification-service/app/models/notification.py
 from sqlalchemy import Column, Integer, String, DateTime, JSON, Text
 from sqlalchemy.sql import func
 from datetime import datetime
@@ -14,6 +15,10 @@ class Notification(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     type = Column(String, nullable=False)  # "low_stock", etc.
+    channel = Column(String, nullable=False, default="email")  # Add this field
+    
+    # Recipients
+    recipient_id = Column(String, nullable=True)  # Add this field
     
     # Content
     subject = Column(String, nullable=True)
@@ -36,6 +41,8 @@ class Notification(Base):
 class NotificationBase(BaseModel):
     """Base model for notifications."""
     type: str
+    channel: str = "email"  # Add this field
+    recipient_id: Optional[str] = None  # Add this field
     subject: Optional[str] = None
     content: str
     data: Optional[Dict[str, Any]] = None

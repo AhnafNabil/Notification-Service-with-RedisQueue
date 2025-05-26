@@ -1,3 +1,4 @@
+# notification-service/app/services/notification_processor.py
 import json
 import logging
 import asyncio
@@ -68,6 +69,8 @@ class NotificationProcessor:
         async with AsyncSessionLocal() as db:
             db_notification = Notification(
                 type="low_stock",
+                channel="email",  # Add required field
+                recipient_id="admin",  # Add required field
                 subject=f"Low Stock Alert: {product_name}",
                 content=f"Product '{product_name}' is running low on stock. Current quantity: {current_quantity}, Threshold: {threshold}",
                 data=data,
