@@ -1,282 +1,406 @@
-# E-commerce Low Stock Notification System
+# E-commerce Notification System Testing Guide
 
-## System Workflow Overview
+This comprehensive guide will walk you through testing the **E-commerce Notification System** that automatically monitors inventory levels and sends email alerts when products run low. The system uses **Redis pub/sub** for real-time communication and **SMTP** for email delivery.
 
-The workflow remains the same as described earlier:
-1. Inventory thresholds are configured
-2. Orders or inventory updates reduce stock levels
-3. Low stock conditions trigger notifications via Redis
-4. Admin receives email notifications
-
-## Step-by-Step Testing Procedure (Revised)
-
-### 1. Start the System
-
-```bash
-docker-compose up -d
+## System Architecture
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
+│  Inventory      │    │     Redis        │    │   Notification      │
+│  Service        │───▶│   Pub/Sub        │───▶│   Service           │
+│                 │    │                  │    │                     │
+│ • Stock Updates │    │ • Low Stock      │    │ • Email Alerts     │
+│ • Thresholds    │    │   Messages       │    │ • Admin Notifications│
+└─────────────────┘    └──────────────────┘    └─────────────────────┘
+                                                          │
+                                                          ▼
+                                                ┌─────────────────────┐
+                                                │    Email Provider   │
+                                                │   (Mailtrap SMTP)   │
+                                                └─────────────────────┘
 ```
 
-Wait for all services to initialize (about 30 seconds).
+## The Setup
 
-### 2. Verify Services Are Running
-
-```bash
-# Check service status
-docker-compose ps
-
-# Verify API Gateway is responsive
-curl http://localhost/health
-```
-
-All services should be in the "Up" state with their respective health checks passing.
-
-### 3. Create a Dedicated Test Product
+Run the application using docker compose:
 
 ```bash
-# Create a unique test product with an initial quantity
-curl -X POST "http://localhost/api/v1/products/" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Notification Test Monitor",
-    "description": "Product specifically for testing notification system",
-    "category": "Electronics",
-    "price": 249.99,
-    "quantity": 10
-  }' | jq .
+docker-compose up --build -d
 ```
 
-Save the product ID from the response:
+Install `jq` to make JSON output more readable in the terminal:
 
 ```bash
-PRODUCT_ID=$(curl -s -X GET "http://localhost/api/v1/products/" | \
-  jq -r '.[] | select(.name=="Notification Test Monitor") | ._id')
-
-echo "Product ID: $PRODUCT_ID"
+apt-get update && apt-get install -y jq
 ```
 
-### 4. Verify Inventory Setup
+## Quick System Health Check
 
-Check that the inventory record was automatically created for the product:
+Verify all services are running:
+```bash
+docker-compose ps -a 
+```
+
+## Testing Scenarios
+
+### Scenario 1: Direct Email Testing
+
+**Purpose**: Verify the email delivery system works independently
+
+**When to Use**: 
+- Initial system setup
+- Email configuration troubleshooting
+- SMTP connectivity verification
+
+**Steps**:
+
+Send test email:
 
 ```bash
-# Check initial inventory
-curl -s -X GET "http://localhost/api/v1/inventory/$PRODUCT_ID" | jq .
+curl -X POST "http://localhost/api/v1/notifications/test" | jq . 
 ```
 
-You should see something like:
+**Expected Response**:
+
 ```json
 {
-  "id": 1,
-  "product_id": "your-product-id",
-  "available_quantity": 10,
-  "reserved_quantity": 0,
-  "reorder_threshold": 5,
-  "created_at": "2023-05-27T12:00:00",
-  "updated_at": "2023-05-27T12:00:00"
+  "message": "Test notification created",
+  "notification_id": 1,
+  "email_sent": true,
+  "admin_email": "admin@example.com"
 }
 ```
 
-### 5. Test Direct Email Functionality
+**Success Indicators**:
+- `email_sent: true` in response
+- Email appears in Mailtrap inbox
+- Subject: "Test Notification"
 
-Test the email notification system directly:
+### Scenario 2: Product Creation Flow
 
-```bash
-# Send a test notification
-curl -X POST "http://localhost/api/v1/notifications/test"
-```
+**Purpose**: Test automatic inventory creation and threshold setup
 
-Check your Mailtrap inbox for the test email. You should see a "Test Notification" email.
+**When to Use**:
+- New product onboarding
+- Inventory service integration testing
 
-### 6. Trigger a Low Stock Notification via Inventory Update
+**Steps**:
 
-Update the inventory to simulate a low stock condition:
+1. Create a test product:
 
-```bash
-# Update inventory to below threshold
-curl -X PUT "http://localhost/api/v1/inventory/$PRODUCT_ID" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "available_quantity": 3,
-    "reorder_threshold": 5
-  }' | jq .
-```
+    ```bash
+    curl -X POST "http://localhost/api/v1/products/" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Smart Watch",
+        "description": "Waterproof fitness tracker with heart rate monitoring",
+        "category": "Electronics",
+        "price": 299.99,
+        "quantity": 15
+      }'
+    ```
 
-Check your Mailtrap inbox again. You should see a "Low Stock Alert" email for "Notification Test Monitor" with details about the product.
+2. Extract product ID from response:
 
-### 7. Verify Notification Database Record
+    ```bash
+    PRODUCT_ID=$(curl -s "http://localhost/api/v1/products/" | \
+      jq -r '.[] | select(.name=="Smart Watch") | ._id')
+    echo "Product ID: $PRODUCT_ID"
+    ```
 
-Check that the notification was recorded in the database:
+3. Verify automatic inventory creation:
 
-```bash
-# List recent notifications
-curl -s "http://localhost/api/v1/notifications/?limit=5" | jq .
-```
+    ```bash
+    curl -s "http://localhost/api/v1/inventory/$PRODUCT_ID" | jq .
+    ```
 
-You should see a low stock notification with status "sent" for the "Notification Test Monitor" product.
+**Expected Results**:
+- Product created successfully
+- Inventory record auto-generated
+- Default reorder threshold set (minimum 5 or 10% of initial quantity)
 
-### 8. Test Order-Triggered Notification
+### Scenario 3: Direct Inventory Update Trigger
 
-Test the complete flow from order placement to notification by creating another unique product:
+**Purpose**: Test low stock detection via manual inventory adjustment
 
-```bash
-# Create a second unique test product
-curl -X POST "http://localhost/api/v1/products/" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Order Flow Test Keyboard",
-    "description": "Product for testing order-triggered notifications",
-    "category": "Electronics",
-    "price": 89.99,
-    "quantity": 10
-  }' | jq .
+**When to Use**:
+- Inventory management scenarios
+- Stock adjustment workflows
+- Immediate notification triggers
 
-# Get the new product ID
-ORDER_TEST_PRODUCT_ID=$(curl -s -X GET "http://localhost/api/v1/products/" | \
-  jq -r '.[] | select(.name=="Order Flow Test Keyboard") | ._id')
+**Steps**:
 
-echo "Order Test Product ID: $ORDER_TEST_PRODUCT_ID"
+1. Update inventory below threshold to trigger notification:
 
-# Check its inventory and threshold
-curl -s -X GET "http://localhost/api/v1/inventory/$ORDER_TEST_PRODUCT_ID" | jq .
+    ```bash
+    curl -X PUT "http://localhost/api/v1/inventory/$PRODUCT_ID" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "available_quantity": 3,
+        "reorder_threshold": 8
+      }'
+    ```
 
-# Create a user (if one doesn't exist)
-curl -X POST "http://localhost/api/v1/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "notification-test@example.com",
-    "password": "Password123",
-    "first_name": "Notification",
-    "last_name": "Tester",
-    "phone": "555-123-9876"
-  }' | jq .
+2. Wait for notification processing:
 
-# Login to get token
-TOKEN=$(curl -s -X POST "http://localhost/api/v1/auth/login" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=notification-test@example.com&password=Password123" | jq -r .access_token)
+    ```bash
+    sleep 10
+    ```
 
-# Get user ID
-USER_ID=$(curl -s -X GET "http://localhost/api/v1/users/me" \
-  -H "Authorization: Bearer $TOKEN" | jq -r .id)
+3. Verify notification was created:
 
-# Place an order that will reduce inventory below threshold
-curl -s -X POST "http://localhost/api/v1/orders/" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "'$USER_ID'",
-    "items": [
-      {
-        "product_id": "'$ORDER_TEST_PRODUCT_ID'",
-        "quantity": 6,
-        "price": 89.99
-      }
-    ],
-    "shipping_address": {
-      "line1": "456 Notification St",
-      "city": "Alert City",
-      "state": "NT",
-      "postal_code": "54321",
-      "country": "Testland"
-    }
-  }' | jq .
-```
+    ```bash
+    curl -s "http://localhost/api/v1/notifications/?limit=3" | jq '.[0]'
+    ```
 
-Wait a few seconds for the order to be processed, then check your Mailtrap inbox for another low stock notification specifically for the "Order Flow Test Keyboard" product.
+**Success Flow**:
+- Inventory updated successfully
+- Low stock condition detected (3 < 8)
+- Redis message published
+- Notification service receives message
+- Email sent to admin
+- Database record created
 
-### 9. Check Notification Service Logs
+**📧 Expected Email Content**:
+- Subject: "Low Stock Alert: Smart Watch"
+- Product details with current quantity (3) and threshold (8)
 
-Examine the notification service logs to see the entire process:
+### Scenario 4: Order-Triggered Notification Flow
+**Purpose**: Test complete e-commerce workflow from order to notification
 
-```bash
-# View notification service logs
-docker-compose logs notification-service | tail -n 50
-```
+**When to Use**:
+- End-to-end system testing
+- Customer order impact simulation
+- Multi-service integration verification
 
-Look for messages showing the processing of notifications for our test products.
+**Setup**:
 
-### 10. Test Direct Redis Message
+1. Create another test product with specific threshold:
 
-Test sending a notification message directly through Redis:
+    ```bash
+    curl -X POST "http://localhost/api/v1/products/" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Wireless Noise-Cancelling Headphones",
+        "description": "Premium headphones with active noise cancellation",
+        "category": "Audio",
+        "price": 149.99,
+        "quantity": 12
+      }'
+    ```
 
-```bash
-# Publish a test Redis message directly
-docker-compose exec redis redis-cli PUBLISH inventory:low-stock '{"type":"low_stock","product_id":"direct-redis-test","product_name":"Direct Redis Test Product","current_quantity":2,"threshold":5}'
-```
+2. Get the new product ID:
 
-After publishing the direct Redis message, check your Mailtrap inbox for a notification about "Direct Redis Test Product".
+    ```bash
+    ORDER_PRODUCT_ID=$(curl -s "http://localhost/api/v1/products/" | \
+      jq -r '.[] | select(.name=="Wireless Noise-Cancelling Headphones") | ._id')
+    echo "Order Product ID: $ORDER_PRODUCT_ID"
+    ```
 
-### 11. Test System Resilience
+**User Registration & Order Process**:
 
-Test how the system handles service outages:
+3. Register a test user:
 
-```bash
-# Create another unique product for resilience testing
-curl -X POST "http://localhost/api/v1/products/" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Resilience Test Headphones",
-    "description": "Product for testing system resilience",
-    "category": "Audio",
-    "price": 129.99,
-    "quantity": 10
-  }' | jq .
+    ```bash
+    curl -X POST "http://localhost/api/v1/auth/register" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "email": "order-test@example.com",
+        "password": "OrderTest123",
+        "first_name": "Order",
+        "last_name": "Tester",
+        "phone": "555-ORDER-TEST"
+      }'
+    ```
 
-# Get the resilience test product ID
-RESILIENCE_PRODUCT_ID=$(curl -s -X GET "http://localhost/api/v1/products/" | \
-  jq -r '.[] | select(.name=="Resilience Test Headphones") | ._id')
+4. Login to get authentication token:
 
-echo "Resilience Test Product ID: $RESILIENCE_PRODUCT_ID"
+    ```bash
+    TOKEN=$(curl -s -X POST "http://localhost/api/v1/auth/login" \
+      -H "Content-Type: application/x-www-form-urlencoded" \
+      -d "username=order-test@example.com&password=OrderTest123" | \
+      jq -r .access_token)
+    ```
 
-# Stop the notification service
-docker-compose stop notification-service
+5. Get user ID for order creation:
 
-# Trigger a low stock condition
-curl -X PUT "http://localhost/api/v1/inventory/$RESILIENCE_PRODUCT_ID" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "available_quantity": 1,
-    "reorder_threshold": 5
-  }' | jq .
+    ```bash
+    USER_ID=$(curl -s -X GET "http://localhost/api/v1/users/me" \
+      -H "Authorization: Bearer $TOKEN" | jq -r .id)
+    ```
 
-# Start the notification service again
-docker-compose start notification-service
+6. Place order that will trigger low stock (12 - 8 = 4, which is < 5 threshold):
 
-# Check logs to see if message was processed after restart
-docker-compose logs --tail=50 notification-service
-```
+    ```bash
+    curl -X POST "http://localhost/api/v1/orders/" \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "user_id": "'$USER_ID'",
+        "items": [
+          {
+            "product_id": "'$ORDER_PRODUCT_ID'",
+            "quantity": 8,
+            "price": 149.99
+          }
+        ],
+        "shipping_address": {
+          "line1": "123 Order Test Lane",
+          "city": "Notification City",
+          "state": "NC",
+          "postal_code": "12345",
+          "country": "Testland"
+        }
+      }'
+    ```
 
-## Verifying Results
+**Verification**:
 
-After running the tests, you should have:
+7. Wait for order processing and notification:
 
-1. **Three Product-Specific Notifications**:
-   - "Notification Test Monitor" (triggered by direct inventory update)
-   - "Order Flow Test Keyboard" (triggered by order placement)
-   - "Resilience Test Headphones" (testing service resilience)
+    ```bash
+    sleep 15
+    ```
 
-2. **Two Additional Notifications**:
-   - Test notification (from the /test endpoint)
-   - "Direct Redis Test Product" (from manual Redis message)
+8. Check inventory was reduced:
 
-In your Mailtrap inbox, each notification should have:
-- A clear subject line identifying the product
-- The current quantity and threshold information
-- Product details formatted in HTML
+    ```bash
+    curl -s "http://localhost/api/v1/inventory/$ORDER_PRODUCT_ID" | jq .
+    ```
 
-## Checking Database Records
+9. Verify notification was triggered:
 
-To review all notifications in the database:
+    ```bash
+    curl -s "http://localhost/api/v1/notifications/?limit=5" | \
+      jq '.[] | select(.type=="low_stock") | {id, subject, status, created_at}'
+    ```
 
-```bash
-# View all stored notifications
-curl -s "http://localhost/api/v1/notifications/?limit=10" | jq .
-```
+**Complete Order Flow**:
 
-Each notification should have a status of "sent" if email delivery was successful.
+1. **Order Placed** → Order Service creates order
+2. **Inventory Reserved** → Inventory Service reduces available stock
+3. **Low Stock Detected** → Available quantity (4) < threshold (5)
+4. **Redis Message** → Inventory publishes low stock event
+5. **Notification Triggered** → Notification Service processes message
+6. **Email Sent** → Admin receives low stock alert
+7. **Database Updated** → Notification record stored
+
+### Scenario 5: Direct Redis Messaging
+
+**Purpose**: Test Redis pub/sub communication directly
+
+**When to Use**:
+- Debugging message queue issues
+- Testing notification service isolation
+- Verifying Redis connectivity
+
+**Steps**:
+
+1. Send direct Redis message:
+
+    ```bash
+    docker-compose exec redis redis-cli PUBLISH inventory:low-stock '{
+      "type": "low_stock",
+      "product_id": "redis-direct-test",
+      "product_name": "Direct Redis Test Product",
+      "current_quantity": 2,
+      "threshold": 5,
+      "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)'"
+    }'
+    ```
+
+2. Wait for processing:
+
+    ```bash
+    sleep 5
+    ```
+
+3. Check notification was created:
+
+    ```bash
+    curl -s "http://localhost/api/v1/notifications/?limit=3" | \
+      jq '.[] | select(.data.product_id=="redis-direct-test")'
+    ```
+
+**Success Indicators**:
+- Redis returns `(integer) 1` (message published to 1 subscriber)
+- Notification appears in database
+- Email sent to admin
+
+### Scenario 6: System Resilience Testing
+
+**Purpose**: Test system behavior during service outages
+
+**When to Use**:
+- Disaster recovery testing
+- Service reliability verification
+- Message persistence validation
+
+**Steps**:
+
+1. Create resilience test product:
+
+    ```bash
+    curl -X POST "http://localhost/api/v1/products/" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Resilience Test Keyboard",
+        "description": "Mechanical keyboard for resilience testing",
+        "category": "Peripherals",
+        "price": 89.99,
+        "quantity": 8
+      }'
+    ```
+
+2. Get the product ID:
+
+    ```bash
+    RESILIENCE_PRODUCT_ID=$(curl -s "http://localhost/api/v1/products/" | \
+      jq -r '.[] | select(.name=="Resilience Test Keyboard") | ._id')
+    ```
+
+3. Stop notification service:
+
+    ```bash
+    docker-compose stop notification-service
+    ```
+
+4. Trigger low stock condition while service is down:
+
+    ```bash
+    curl -X PUT "http://localhost/api/v1/inventory/$RESILIENCE_PRODUCT_ID" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "available_quantity": 2,
+        "reorder_threshold": 6
+      }'
+    ```
+
+5. Restart notification service:
+
+    ```bash
+    docker-compose start notification-service
+    sleep 15
+    ```
+
+6. Check if missed notifications were processed:
+
+    ```bash
+    curl -s "http://localhost/api/v1/notifications/?limit=5" | \
+      jq '.[] | select(.data.product_id=="'$RESILIENCE_PRODUCT_ID'")'
+    ```
+
+**Resilience Scenarios**:
+- **Service Downtime**: Messages may be lost if not using persistent queues
+- **Database Connectivity**: Service should handle database reconnections
+- **Redis Connectivity**: Should gracefully handle Redis outages
+- **SMTP Failures**: Should retry failed email attempts
 
 ## Conclusion
 
-By using distinct product names for each test case, you can clearly identify which notifications correspond to which test scenarios. This makes it easier to verify that each part of the system is working correctly and to troubleshoot any issues that might arise.
+This comprehensive testing guide covers all major notification scenarios in the e-commerce system. The notification service acts as a critical business intelligence tool, ensuring administrators are promptly informed about inventory levels that require attention.
 
-The low stock notification system provides a streamlined way to monitor inventory levels and alert administrators when products need to be replenished, helping to prevent stockouts and ensure a smooth shopping experience for customers.
+**Key Benefits**:
+- **Prevents Stockouts**: Proactive alerts before inventory depletion
+- **Optimizes Cash Flow**: Just-in-time inventory management
+- **Improves Customer Satisfaction**: Avoids backorders and delays
+- **Reduces Manual Monitoring**: Automated surveillance of thousands of products
