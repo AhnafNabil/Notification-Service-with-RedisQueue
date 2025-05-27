@@ -101,12 +101,6 @@ class NotificationProcessor:
             </div>
 
             <p><strong>Action Required:</strong> Please replenish the inventory as soon as possible to avoid stockouts.</p>
-            
-            <hr style="margin: 20px 0;">
-            <small style="color: #6c757d;">
-                Alert generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC<br>
-                Original event: {timestamp if timestamp else 'N/A'}
-            </small>
             """
             
             # Send email
