@@ -9,6 +9,9 @@ from app.core.config import settings
 from app.db.postgresql import AsyncSessionLocal
 from app.models.inventory import InventoryItem, InventoryHistory
 
+# ADD THIS IMPORT - This is the key fix!
+from app.api.routes.inventory import check_and_notify_low_stock
+
 logger = logging.getLogger(__name__)
 
 # Create RabbitMQ client
@@ -94,6 +97,20 @@ async def start_order_consumer():
                     if all_success:
                         # All inventory reservations successful
                         await db.commit()
+                        
+                        # 🔧 FIX: Check for low stock notifications after successful reservation
+                        for item in items:
+                            product_id = item.get("product_id")
+                            
+                            # Get the updated inventory item
+                            query = select(InventoryItem).where(InventoryItem.product_id == product_id)
+                            result = await db.execute(query)
+                            updated_inventory_item = result.scalars().first()
+                            
+                            if updated_inventory_item:
+                                # Call the same notification function used by the API
+                                await check_and_notify_low_stock(updated_inventory_item)
+                                logger.info(f"Checked low stock notification for product {product_id} after order processing")
                         
                         # Publish success message
                         await rabbitmq_client.publish(
@@ -187,6 +204,9 @@ async def start_inventory_release_consumer():
                     db.add(history)
                     
                     await db.commit()
+                    
+                    # 🔧 Note: We don't usually notify on inventory release (stock going up)
+                    # But if you want to notify when stock is replenished, you could add it here
                     
                     logger.info(f"Released {released_quantity} units of {product_id} from order {order_id}")
             
