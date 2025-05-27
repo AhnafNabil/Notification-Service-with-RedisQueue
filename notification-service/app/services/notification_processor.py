@@ -86,20 +86,33 @@ class NotificationProcessor:
         if settings.ADMIN_EMAIL:
             # Prepare email content
             html_content = f"""
-            <h2>Low Stock Alert</h2>
-            <p>Product <strong>{product_name}</strong> is running low on stock.</p>
-            <ul>
-                <li><strong>Product ID:</strong> {product_id}</li>
-                <li><strong>Current Quantity:</strong> {current_quantity}</li>
-                <li><strong>Threshold:</strong> {threshold}</li>
-            </ul>
-            <p>Please replenish the inventory as soon as possible.</p>
+            <h2>🚨 Low Stock Alert</h2>
+            <p>Product <strong>{product_name}</strong> is running low on stock and needs immediate attention.</p>
+            
+            <div style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #dc3545; margin: 15px 0;">
+                <h3>Stock Details:</h3>
+                <ul style="margin: 0; padding-left: 20px;">
+                    <li><strong>Product ID:</strong> {product_id}</li>
+                    <li><strong>Product Name:</strong> {product_name}</li>
+                    <li><strong>Current Quantity:</strong> <span style="color: #dc3545; font-weight: bold;">{current_quantity}</span></li>
+                    <li><strong>Reorder Threshold:</strong> {threshold}</li>
+                    <li><strong>Stock Status:</strong> <span style="color: #dc3545;">Below Threshold</span></li>
+                </ul>
+            </div>
+
+            <p><strong>Action Required:</strong> Please replenish the inventory as soon as possible to avoid stockouts.</p>
+            
+            <hr style="margin: 20px 0;">
+            <small style="color: #6c757d;">
+                Alert generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC<br>
+                Original event: {timestamp if timestamp else 'N/A'}
+            </small>
             """
             
             # Send email
             success = await email_provider.send_email(
                 to_email=settings.ADMIN_EMAIL,
-                subject=f"Low Stock Alert: {product_name}",
+                subject=f"🚨 Low Stock Alert: {product_name}",
                 html_content=html_content
             )
             

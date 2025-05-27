@@ -75,6 +75,8 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
 - Email appears in Mailtrap inbox
 - Subject: "Test Notification"
 
+![alt text](image.png)
+
 ### Scenario 2: Product Creation Flow
 
 **Purpose**: Test automatic inventory creation and threshold setup
@@ -96,7 +98,7 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
         "category": "Electronics",
         "price": 299.99,
         "quantity": 15
-      }'
+      }' | jq .
     ```
 
 2. Extract product ID from response:
@@ -137,7 +139,7 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
       -d '{
         "available_quantity": 3,
         "reorder_threshold": 8
-      }'
+      }' | jq .
     ```
 
 2. Wait for notification processing:
@@ -152,6 +154,8 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
     curl -s "http://localhost/api/v1/notifications/?limit=3" | jq '.[0]'
     ```
 
+    ![alt text](image-1.png)
+
 **Success Flow**:
 - Inventory updated successfully
 - Low stock condition detected (3 < 8)
@@ -163,6 +167,8 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
 **📧 Expected Email Content**:
 - Subject: "Low Stock Alert: Smart Watch"
 - Product details with current quantity (3) and threshold (8)
+
+![alt text](image-2.png)
 
 ### Scenario 4: Order-Triggered Notification Flow
 **Purpose**: Test complete e-commerce workflow from order to notification
@@ -185,7 +191,7 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
         "category": "Audio",
         "price": 149.99,
         "quantity": 12
-      }'
+      }' | jq .
     ```
 
 2. Get the new product ID:
@@ -209,7 +215,7 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
         "first_name": "Order",
         "last_name": "Tester",
         "phone": "555-ORDER-TEST"
-      }'
+      }' | jq .
     ```
 
 4. Login to get authentication token:
@@ -250,7 +256,7 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
           "postal_code": "12345",
           "country": "Testland"
         }
-      }'
+      }' | jq .
     ```
 
 **Verification**:
