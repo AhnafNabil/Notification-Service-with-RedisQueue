@@ -75,7 +75,7 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
 - Email appears in Mailtrap inbox
 - Subject: "Test Notification"
 
-![alt text](image.png)
+![alt text](./images/image.png)
 
 ### Scenario 2: Product Creation Flow
 
@@ -154,7 +154,7 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
     curl -s "http://localhost/api/v1/notifications/?limit=3" | jq '.[0]'
     ```
 
-    ![alt text](image-1.png)
+    ![alt text](./images/image-1.png)
 
 **Success Flow**:
 - Inventory updated successfully
@@ -168,7 +168,7 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
 - Subject: "Low Stock Alert: Smart Watch"
 - Product details with current quantity (3) and threshold (8)
 
-![alt text](image-2.png)
+![alt text](./images/image-2.png)
 
 ### Scenario 4: Order-Triggered Notification Flow
 **Purpose**: Test complete e-commerce workflow from order to notification
@@ -280,6 +280,14 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
       jq '.[] | select(.type=="low_stock") | {id, subject, status, created_at}'
     ```
 
+    ![alt text](./images/image-3.png)
+
+10. Check Email Notifications:
+
+    ![alt text](./images/image-4.png)
+
+    
+
 **Complete Order Flow**:
 
 1. **Order Placed** → Order Service creates order
@@ -331,6 +339,8 @@ curl -X POST "http://localhost/api/v1/notifications/test" | jq .
 - Redis returns `(integer) 1` (message published to 1 subscriber)
 - Notification appears in database
 - Email sent to admin
+
+![alt text](./images/image-5.png)
 
 ## Conclusion
 
