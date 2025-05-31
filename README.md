@@ -4,7 +4,6 @@ This comprehensive guide will walk you through testing the **E-commerce Notifica
 
 ## System Architecture
 
-![alt text](./images/Notification-service.svg)
 
 ## The Setup
 
