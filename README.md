@@ -3,21 +3,8 @@
 This comprehensive guide will walk you through testing the **E-commerce Notification System** that automatically monitors inventory levels and sends email alerts when products run low. The system uses **Redis pub/sub** for real-time communication and **SMTP** for email delivery.
 
 ## System Architecture
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
-│  Inventory      │    │     Redis        │    │   Notification      │
-│  Service        │───▶│   Pub/Sub        │───▶│   Service           │
-│                 │    │                  │    │                     │
-│ • Stock Updates │    │ • Low Stock      │    │ • Email Alerts     │
-│ • Thresholds    │    │   Messages       │    │ • Admin Notifications│
-└─────────────────┘    └──────────────────┘    └─────────────────────┘
-                                                          │
-                                                          ▼
-                                                ┌─────────────────────┐
-                                                │    Email Provider   │
-                                                │   (Mailtrap SMTP)   │
-                                                └─────────────────────┘
-```
+
+![alt text](./images/Notification-service.svg)
 
 ## The Setup
 
